@@ -1,0 +1,23 @@
+auth_meta_extensions: "yaml"
+work_meta_extensions: "yaml"
+
+auth_meta:
+  filename_pattern: "^[a-z]+\\.yaml$"
+
+work_meta:
+  filename_pattern: "^[a-z]+\\.yaml$"
+
+work_cont:
+  filename_pattern: "^[a-z]+_[a-z]+\\.txt$"
+
+
+
+allowed_text_extensions:
+  - "txt"
+  - "yaml"
+
+texts_dir: "test_files/text"
+
+auth_dir: "test_files/auth"
+
+filename_pattern:
