@@ -173,8 +173,8 @@ def main():
     all_violations.append([check_unique_ids(work_ids)])
     all_violations.append([check_unique_ids(auth_ids)])
 
-    with open("schemas/author.json") as f:
-        auth_schema = json.load(f)
+    with open("schemas/author.yaml") as f:
+        auth_schema = yaml.safe_load(f)
 
     for file in auth_meta_files:
         author_id = Path(file).stem
@@ -185,8 +185,8 @@ def main():
         except ValidationError as e:
             print(f"❌ Validation error: {file}", e.message)
 
-    with open("schemas/work.json") as f:
-        work_schema = json.load(f)
+    with open("schemas/work.yaml") as f:
+        work_schema = yaml.safe_load(f)
     for file in work_meta_files:
         work_id = Path(file).stem
         with open(file) as f:
