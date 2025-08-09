@@ -7,7 +7,41 @@
         "type": "string",
         "pattern": "^[a-zA-ZāīūṛṝḷḹṃṁḥṅñṭḍśṣĀĪŪṚṜḶḸṀṂŚṢḤṄÑṬḌ]{2,255}$"
       }
+    },
+    "datings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "properties": {
+          "from_date": { 
+            "type": "integer", 
+            "minimum": -1500, 
+            "maximum": 3000,
+            "description": "Common era, negative values for BCE"
+          },
+          "to_date": { 
+            "type": "integer", 
+            "minimum": -1500, 
+            "maximum": 3000,
+            "description": "Common era, negative values for BCE"
+          },
+          "source": {
+            "type": "string",
+            "pattern": "^[a-z]{2,15}[0-9]{4}$"
+          },
+          "comment": {
+            "type": "string",
+            "pattern": "^[a-z]{2,15}[0-9]{4}$",
+            "minLength": 2,
+            "maxLength": 255
+          }
+        },
+        "required": ["from_date", "to_date", "source", "comment"]
+      }
     }
   },
-  "required": ["names"]
+  "required": ["names"],
+  "additionalProperties": false
 }
