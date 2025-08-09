@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "names": {
+      "type": "array",
+      "items": { 
+        "type": "string",
+        "pattern": "^[a-zA-ZāīūṛṝḷḹṃṁḥṅñṭḍśṣĀĪŪṚṜḶḸṀṂŚṢḤṄÑṬḌ]{2,255}$"
+      }
+    }
+  },
+  "required": ["names"]
+}

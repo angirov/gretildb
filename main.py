@@ -3,6 +3,8 @@ from pathlib import Path
 from collections import Counter
 import re
 import yaml
+import json
+from jsonschema import validate, ValidationError
 
 all_violations = []
 
@@ -131,7 +133,7 @@ def check_filename_pattern(file_path, pattern):
 
     return violations
 
-def check_uniqu_ids(id_list):
+def check_unique_ids(id_list):
     violations = []
     counts = Counter(id_list)
     non_unique = [item for item, count in counts.items() if count > 1]
@@ -147,14 +149,17 @@ def main():
     rules = load_rules("config.yaml")
     violations = []
 
-    text_files = get_all_files(rules["texts_dir"])
-    work_meta_files = [file for file in text_files if Path(file).suffix == "." + rules["work_meta_extensions"]]
-    work_cont_files = [file for file in text_files if Path(file).suffix != "." + rules["work_meta_extensions"]]
+    text_dir_files = get_all_files(rules["texts_dir"])
+    work_meta_files = [file for file in text_dir_files if Path(file).suffix == "." + rules["work_meta_extensions"]]
 
-    auth_meta_files = get_all_files(rules["auth_dir"])
-    print(text_files, work_meta_files, auth_meta_files)
+    work_cont_files = [file for file in text_dir_files if Path(file).suffix != "." + rules["work_meta_extensions"]]
 
-    for filelist in text_files, work_meta_files, auth_meta_files:
+    auth_dir_files = get_all_files(rules["auth_dir"])
+    auth_meta_files = [file for file in auth_dir_files if Path(file).suffix == "." + rules["auth_meta_extensions"]]
+
+    print(text_dir_files, work_meta_files, auth_meta_files)
+
+    for filelist in text_dir_files, auth_dir_files:
         all_violations.append(check_filenames_multiple_dots(filelist))
 
     for work_meta in work_meta_files:
@@ -165,8 +170,31 @@ def main():
 
     work_ids = [Path(w).stem for w in work_meta_files]
     auth_ids = [Path(w).stem for w in auth_meta_files]
-    all_violations.append([check_uniqu_ids(work_ids)])
-    all_violations.append([check_uniqu_ids(auth_ids)])
+    all_violations.append([check_unique_ids(work_ids)])
+    all_violations.append([check_unique_ids(auth_ids)])
+
+    with open("schemas/author.json") as f:
+        auth_schema = json.load(f)
+
+    for file in auth_meta_files:
+        author_id = Path(file).stem
+        with open(file) as f:
+            author_data = yaml.safe_load(f)
+        try:
+            validate(instance=author_data, schema=auth_schema)
+        except ValidationError as e:
+            print(f"❌ Validation error: {file}", e.message)
+
+    with open("schemas/work.json") as f:
+        work_schema = json.load(f)
+    for file in work_meta_files:
+        work_id = Path(file).stem
+        with open(file) as f:
+            work_data = yaml.safe_load(f)
+        try:
+            validate(instance=work_data, schema=work_schema)
+        except ValidationError as e:
+            print(f"❌ Validation error: {file}", e.message)
 
     for work_cont in work_cont_files:
         all_violations.append(check_filename_pattern(work_cont, rules["work_cont"]["filename_pattern"]))

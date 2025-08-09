@@ -12,10 +12,6 @@ work_cont:
 
 
 
-allowed_text_extensions:
-  - "txt"
-  - "yaml"
-
 texts_dir: "test_files/text"
 
 auth_dir: "test_files/auth"
