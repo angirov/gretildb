@@ -1,0 +1,28 @@
+<ul class="folder-tree">
+{% for folder, files in tree.items() %}
+    <li>
+        <details open>
+            <summary>{{ folder }}</summary>
+            <ul>
+            {% for file in files.files %}
+                <li><a href="{{ file.stem }}.html">{{ file.stem }}</a></li>
+            {% endfor %}
+            {% if files.subfolders %}
+                {% for subfolder, subfiles in files.subfolders.items() %}
+                    <li>
+                        <details open>
+                            <summary>{{ subfolder }}</summary>
+                            <ul>
+                                {% for f in subfiles.files %}
+                                    <li><a href="{{ f.stem }}.html">{{ f.stem }}</a></li>
+                                {% endfor %}
+                            </ul>
+                        </details>
+                    </li>
+                {% endfor %}
+            {% endif %}
+            </ul>
+        </details>
+    </li>
+{% endfor %}
+</ul>

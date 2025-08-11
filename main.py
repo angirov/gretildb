@@ -1,12 +1,11 @@
-import os
+import os, sys
 from pathlib import Path
 from collections import Counter
 import re
 import yaml
 import json
 from jsonschema import validate, ValidationError
-
-all_violations = []
+from pprint import pprint
 
 class Violation:
     def __init__(self, file, check, message, severity="error"):
@@ -145,61 +144,73 @@ def check_unique_ids(id_list):
             message = f"Repeating IDs found: {non_unique}"
         )
 
-def main():
-    rules = load_rules("config.yaml")
-    violations = []
 
-    text_dir_files = get_all_files(rules["texts_dir"])
-    work_meta_files = [file for file in text_dir_files if Path(file).suffix == "." + rules["work_meta_extensions"]]
+def find_has_foreign_keys(collections: dict):
+    for collection_key, docs_dict in collections.items():
+        docs_dict["__has_foreign_keys"] = []
+        #TODO: check of self reference
+        other_collection_keys = [k for k, _ in collections.items() if k != collection_key]
+        for ok in other_collection_keys:
+            if "properties" in docs_dict["__validation_schema"] and ok in docs_dict["__validation_schema"]["properties"]:
+                docs_dict["__has_foreign_keys"].append(ok)
+                print(f">>> For {collection_key} foreign key {ok} found!")
 
-    work_cont_files = [file for file in text_dir_files if Path(file).suffix != "." + rules["work_meta_extensions"]]
 
-    auth_dir_files = get_all_files(rules["auth_dir"])
-    auth_meta_files = [file for file in auth_dir_files if Path(file).suffix == "." + rules["auth_meta_extensions"]]
+def find_is_foreign_keys(collections: dict):
+    for collection_key, docs_dict in collections.items():
+        docs_dict["__is_foreign_key_in"] = []
+    for collection_key, docs_dict in collections.items():
+        for fk in docs_dict["__has_foreign_keys"]:
+            collections[fk]["__is_foreign_key_in"].append(collection_key)
 
-    print(text_dir_files, work_meta_files, auth_meta_files)
 
-    for filelist in text_dir_files, auth_dir_files:
-        all_violations.append(check_filenames_multiple_dots(filelist))
+def find_mentions(collections: dict):
+    for collection_key, docs_dict in collections.items():#authors
+        docs_dict["__mentioned_in"] = {}
+        for primary in docs_dict:#js
+            if not primary.startswith("__"):    
+                docs_dict[primary]["__mentioned_in"] = dict()
+                for other_collection in docs_dict["__is_foreign_key_in"]:#works
+                    docs_dict[primary]["__mentioned_in"][other_collection] = []
+                    for doc in collections[other_collection]:#iv
+                        if not doc.startswith("__") and primary in collections[other_collection][doc][collection_key]:
+                            docs_dict[primary]["__mentioned_in"][other_collection].append(doc)
 
-    for work_meta in work_meta_files:
-        all_violations.append(check_filename_pattern(work_meta, rules["work_meta"]["filename_pattern"]))
 
-    for auth_meta in auth_meta_files:
-        all_violations.append(check_filename_pattern(auth_meta, rules["auth_meta"]["filename_pattern"]))
+def main(db_root: Path):
+    rules = load_rules(db_root / "config.yaml")
+    all_violations = []
 
-    work_ids = [Path(w).stem for w in work_meta_files]
-    auth_ids = [Path(w).stem for w in auth_meta_files]
-    all_violations.append([check_unique_ids(work_ids)])
-    all_violations.append([check_unique_ids(auth_ids)])
+    collection_name_pattern = "_[a-z]{2,255}"
+    collections = dict()
+    collection_dirs = [dir for dir in db_root.iterdir() if dir.is_dir() and re.match(collection_name_pattern, str(dir.name))]
+    for dir in collection_dirs:
 
-    with open("schemas/author.yaml") as f:
-        auth_schema = yaml.safe_load(f)
+        collections[dir.name] = dict()
+        with open(db_root / "schemas" / (dir.name + ".yaml")) as f:
+            validation_schema = yaml.safe_load(f)
+        collections[dir.name]["__validation_schema"] = validation_schema
+        for doc in dir.rglob("*.yaml"):
 
-    for file in auth_meta_files:
-        author_id = Path(file).stem
-        with open(file) as f:
-            author_data = yaml.safe_load(f)
-        try:
-            validate(instance=author_data, schema=auth_schema)
-        except ValidationError as e:
-            print(f"❌ Validation error: {file}", e.message)
+            with open(doc) as f:
+                data = yaml.safe_load(f)
+            try:
+                validate(instance=data, schema=validation_schema)
+                collections[dir.name][doc.stem] = data
+                collections[dir.name][doc.stem]["path"] = str(doc.relative_to(db_root))
+            except ValidationError as e:
+                print(f"❌ Validation error: {doc}", e.message)
 
-    with open("schemas/work.yaml") as f:
-        work_schema = yaml.safe_load(f)
-    for file in work_meta_files:
-        work_id = Path(file).stem
-        with open(file) as f:
-            work_data = yaml.safe_load(f)
-        try:
-            validate(instance=work_data, schema=work_schema)
-        except ValidationError as e:
-            print(f"❌ Validation error: {file}", e.message)
+    find_has_foreign_keys(collections)
+    find_is_foreign_keys(collections)
 
-    for work_cont in work_cont_files:
-        all_violations.append(check_filename_pattern(work_cont, rules["work_cont"]["filename_pattern"]))
+    find_mentions(collections)
 
-    report_violations(all_violations)
+    pprint(collections, sort_dicts=True, indent=4, width=60)
+
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) != 2:
+        print(f"Usage: python {sys.argv[0]} <directory>")
+        sys.exit(1)
+    main(Path(sys.argv[1]))

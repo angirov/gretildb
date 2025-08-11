@@ -1,0 +1,19 @@
+type: object
+additionalProperties: no
+required:
+  - _authors
+  - titles
+
+properties:
+  _authors:
+    items:
+      pattern: ^[a-z]{2,255}$
+      type: string
+    maxItems: 100
+    minItems: 1
+    type: array
+  titles:
+    items:
+      pattern: ^[a-zA-ZāīūṛṝḷḹṃṁḥṅṇñṭḍśṣĀĪŪṚṜḶḸṀṂŚṢḤṄṆÑṬḌ]{2,255}$
+      type: string
+    type: array
