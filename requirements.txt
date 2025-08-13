@@ -1,0 +1,16 @@
+argcomplete==3.6.2
+attrs==25.3.0
+docopt==0.6.2
+Jinja2==3.1.6
+json2yaml==1.2.0
+jsonschema==4.25.0
+jsonschema-specifications==2025.4.1
+MarkupSafe==3.0.2
+pyaml==25.7.0
+PyYAML==6.0.2
+referencing==0.36.2
+rpds-py==0.27.0
+tomlkit==0.13.3
+typing_extensions==4.14.1
+xmltodict==0.14.2
+yq==3.4.3
