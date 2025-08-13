@@ -5,6 +5,7 @@ import re
 import yaml
 import json
 from jsonschema import validate, ValidationError
+import sqlite3
 from pprint import pprint
 
 class Violation:
@@ -184,30 +185,77 @@ def main(db_root: Path):
     collection_name_pattern = "_[a-z]{2,255}"
     collections = dict()
     collection_dirs = [dir for dir in db_root.iterdir() if dir.is_dir() and re.match(collection_name_pattern, str(dir.name))]
+
+    conn = sqlite3.connect("mydatabase.sqlite")
+    # Without this, SQLite ignores foreign key constraints by default, so it won’t block invalid inserts.
+    conn.execute("PRAGMA foreign_keys = ON") 
     for dir in collection_dirs:
 
         collections[dir.name] = dict()
+        collections[dir.name]["__dir_path"] = dir
         with open(db_root / "schemas" / (dir.name + ".yaml")) as f:
             validation_schema = yaml.safe_load(f)
         collections[dir.name]["__validation_schema"] = validation_schema
-        for doc in dir.rglob("*.yaml"):
 
+
+    for collection_key, docs_dict in collections.items():
+        conn.execute(f"CREATE TABLE {collection_key} (id TEXT PRIMARY KEY)")
+        conn.commit()
+
+    # Extract foreign keys from schemas and create intermediate tables
+    find_has_foreign_keys(collections)
+    for collection_key, docs_dict in collections.items():
+        for foreign_key in docs_dict["__has_foreign_keys"]:
+            conn.execute(f"""
+            CREATE TABLE {collection_key + foreign_key} (
+                {collection_key + "_id"} TEXT,
+                {foreign_key + "_id"} TEXT,
+                PRIMARY KEY ({collection_key + "_id"}, {foreign_key + "_id"}),
+                FOREIGN KEY ({collection_key + "_id"}) REFERENCES {collection_key}(id),
+                FOREIGN KEY ({foreign_key + "_id"}) REFERENCES {foreign_key}(id)
+            )
+            """)
+            conn.commit()
+
+    # Validate docs and create primary entries
+    for collection_key, docs_dict in collections.items():
+        dir = docs_dict["__dir_path"]
+        foreign_keys = docs_dict["__has_foreign_keys"]
+        for doc in dir.rglob("*.yaml"):
             with open(doc) as f:
                 data = yaml.safe_load(f)
             try:
-                validate(instance=data, schema=validation_schema)
+                validate(instance=data, schema=docs_dict["__validation_schema"])
+                conn.execute(f"INSERT INTO {collection_key} (id) VALUES (?)", (doc.stem,))
+                conn.commit()
                 collections[dir.name][doc.stem] = data
                 collections[dir.name][doc.stem]["path"] = str(doc.relative_to(db_root))
+
             except ValidationError as e:
                 print(f"❌ Validation error: {doc}", e.message)
 
-    find_has_foreign_keys(collections)
+    # Fill the intermediate tables
+    for collection_key, docs_dict in collections.items():
+        foreign_keys = docs_dict["__has_foreign_keys"]
+        for primary in docs_dict:#js
+            if not primary.startswith("__"):
+                for foreign_key in foreign_keys:
+                    foreign_id_list = docs_dict[primary][foreign_key]
+                    for fid in foreign_id_list:
+                        print(f"{collection_key} {primary} > {foreign_key} {fid}")
+                        conn.execute(f"INSERT INTO {collection_key + foreign_key} ({collection_key + "_id"}, {foreign_key + "_id"}) VALUES (?, ?)",
+                                (primary, fid))
+                        conn.commit()
+
     find_is_foreign_keys(collections)
 
     find_mentions(collections)
 
-    pprint(collections, sort_dicts=True, indent=4, width=60)
+    with open("db_dump.sql", "w") as f:
+        for line in conn.iterdump():
+            f.write(f"{line}\n")
 
+    conn.close()
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
