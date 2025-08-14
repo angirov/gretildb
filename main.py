@@ -148,14 +148,15 @@ def check_unique_ids(id_list):
 
 def find_has_foreign_keys(collections: dict):
     for collection_key, docs_dict in collections.items():
-        docs_dict["__has_foreign_keys"] = []
+        docs_dict["__has_foreign_keys"] = {}
         #TODO: check of self reference
         other_collection_keys = [k for k, _ in collections.items() if k != collection_key]
         for ok in other_collection_keys:
             if "properties" in docs_dict["__validation_schema"] and ok in docs_dict["__validation_schema"]["properties"]:
-                docs_dict["__has_foreign_keys"].append(ok)
-                print(f">>> For {collection_key} foreign key {ok} found!")
-
+                docs_dict["__has_foreign_keys"][ok] = [] #list of relations
+                for relation, _ in docs_dict["__validation_schema"]["properties"][ok]["properties"].items():
+                    docs_dict["__has_foreign_keys"][ok].append(relation)
+                    print(f">>> For {collection_key} a relation {relation} to the foreign key {ok} found!")
 
 def find_is_foreign_keys(collections: dict):
     for collection_key, docs_dict in collections.items():
@@ -205,17 +206,19 @@ def main(db_root: Path):
     # Extract foreign keys from schemas and create intermediate tables
     find_has_foreign_keys(collections)
     for collection_key, docs_dict in collections.items():
-        for foreign_key in docs_dict["__has_foreign_keys"]:
-            conn.execute(f"""
-            CREATE TABLE {collection_key + foreign_key} (
-                {collection_key + "_id"} TEXT,
-                {foreign_key + "_id"} TEXT,
-                PRIMARY KEY ({collection_key + "_id"}, {foreign_key + "_id"}),
-                FOREIGN KEY ({collection_key + "_id"}) REFERENCES {collection_key}(id),
-                FOREIGN KEY ({foreign_key + "_id"}) REFERENCES {foreign_key}(id)
-            )
-            """)
-            conn.commit()
+        for foreign_key, _ in docs_dict["__has_foreign_keys"].items():
+            print(docs_dict["__has_foreign_keys"][foreign_key])
+            for relation in docs_dict["__has_foreign_keys"][foreign_key]:
+                conn.execute(f"""
+                CREATE TABLE {collection_key + relation + foreign_key} (
+                    {collection_key + "_id"} TEXT,
+                    {foreign_key + "_id"} TEXT,
+                    PRIMARY KEY ({collection_key + "_id"}, {foreign_key + "_id"}),
+                    FOREIGN KEY ({collection_key + "_id"}) REFERENCES {collection_key}(id),
+                    FOREIGN KEY ({foreign_key + "_id"}) REFERENCES {foreign_key}(id)
+                )
+                """)
+                conn.commit()
 
     # Validate docs and create primary entries
     for collection_key, docs_dict in collections.items():
@@ -234,18 +237,24 @@ def main(db_root: Path):
             except ValidationError as e:
                 print(f"❌ Validation error: {doc}", e.message)
 
+    pprint(collections)
     # Fill the intermediate tables
     for collection_key, docs_dict in collections.items():
-        foreign_keys = docs_dict["__has_foreign_keys"]
+        fk_dict = docs_dict["__has_foreign_keys"]
         for primary in docs_dict:#js
             if not primary.startswith("__"):
-                for foreign_key in foreign_keys:
-                    foreign_id_list = docs_dict[primary][foreign_key]
-                    for fid in foreign_id_list:
-                        print(f"{collection_key} {primary} > {foreign_key} {fid}")
-                        conn.execute(f"INSERT INTO {collection_key + foreign_key} ({collection_key + "_id"}, {foreign_key + "_id"}) VALUES (?, ?)",
-                                (primary, fid))
-                        conn.commit()
+                print("#######" + primary)
+                for foreign_key, _ in fk_dict.items():
+                    relations = docs_dict[primary][foreign_key]
+                    for relation, _ in relations.items():
+                        print("$$$$$$$$" + relation)
+                        item_list = docs_dict[primary][foreign_key][relation]
+                        for item in item_list:
+                            print(f"{collection_key} {primary} > {foreign_key} {item["id"]}")
+                            table = collection_key + relation + foreign_key
+                            conn.execute(f"INSERT INTO {table} ({collection_key + "_id"}, {foreign_key + "_id"}) VALUES (?, ?)",
+                                    (primary, item["id"]))
+                            conn.commit()
 
     find_is_foreign_keys(collections)
 

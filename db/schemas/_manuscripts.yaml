@@ -4,14 +4,32 @@ required:
   - _works
   - names
 
+$defs:
+  workLink:
+    type: object
+    additionalProperties: no
+    required: [ id ]
+
+    properties:
+      id:
+        type: string
+        pattern: "^[a-z]{2,255}$"
+        description: Work ID
+      comment:
+        type: string
+
 properties:
   _works:
-    items:
-      pattern: ^[a-z]{2,255}$
-      type: string
-    maxItems: 100
-    minItems: 1
-    type: array
+    type: object
+    additionalProperties: no
+    anyOf:
+      - required: [ _contains ]
+    properties:
+      _contains:
+        type: array
+        items: { $ref: "#/$defs/workLink" }
+        minItems: 1
+        maxItems: 100
   names:
     items:
       pattern: ^[a-zA-ZāīūṛṝḷḹṃṁḥṅṇñṭḍśṣĀĪŪṚṜḶḸṀṂŚṢḤṄṆÑṬḌ]{2,255}$

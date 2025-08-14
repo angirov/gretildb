@@ -1,8 +1,9 @@
 names:
   - Jñānaśrīmitranibandhāvali
 _works:
-  - sarvasabdabhavacarca
-  - advaitabinduprakarana
-  - sakarasiddhisastra
-  - sarvajnasiddhi
-  - karyakaranabhavasiddhi
+  _contains:
+    - id: sarvasabdabhavacarca
+    - id: advaitabinduprakarana
+    - id: sakarasiddhisastra
+    - id: sarvajnasiddhi
+    - id: karyakaranabhavasiddhi

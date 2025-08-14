@@ -36,15 +36,15 @@ properties:
     type: object
     additionalProperties: no
     anyOf: 
-      - composedby
-      - ascribedto
+      - required: [ _composedby ]
+      - required: [ _ascribedto ]
     properties:
-      composedby:
+      _composedby:
         type: array
         items: { $ref: "#/$defs/authorLink" }
         minItems: 1
         maxItems: 100
-      ascribedto:
+      _ascribedto:
         type: array
         items: { $ref: "#/$defs/authorLink" }
         minItems: 1
@@ -52,7 +52,9 @@ properties:
   _works:
     type: object
     additionalProperties: no
-    anyOf: [ commentaryof, translationof]
+    anyOf: 
+      - required: [ _composedby ]
+      - required: [ _translatedby ]
     properties:
       commentaryof:
         type: array

@@ -1,4 +1,5 @@
 _authors:
-  - jnanasrimitra
+  _composedby:
+    - id: jnanasrimitra
 titles:
   - Īśvaravāda
