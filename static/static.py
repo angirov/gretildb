@@ -82,7 +82,7 @@ def main(directory):
         print(attachments)
         with open(file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        yaml_html = yaml_template.render(title="YAML Data", data=data, attachments=attachments)
+        yaml_html = yaml_template.render(title="Metadata", data=data, attachments=attachments)
         file_html = txt_template.render(content=f"<h1>{file.stem}</h1><pre>{yaml_html}</pre>", toc_html=toc_html, homepage=False)
         
         with open(output_directory / f"{file.stem}.html", "w", encoding="utf-8") as f:
