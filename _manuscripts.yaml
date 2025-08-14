@@ -1,0 +1,19 @@
+type: object
+additionalProperties: no
+required:
+  - _works
+  - names
+
+properties:
+  _works:
+    items:
+      pattern: ^[a-z]{2,255}$
+      type: string
+    maxItems: 100
+    minItems: 1
+    type: array
+  names:
+    items:
+      pattern: ^[a-zA-ZāīūṛṝḷḹṃṁḥṅṇñṭḍśṣĀĪŪṚṜḶḸṀṂŚṢḤṄṆÑṬḌ]{2,255}$
+      type: string
+    type: array
