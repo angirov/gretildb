@@ -9,45 +9,47 @@
     </style>
 </head>
 <body>
+
     <h1>{{ title }}</h1>
-    <table>
-        {% for key, value in data.items() %}
-            <tr>
-                <th>{{ key[1:] if key.startswith('_') else key }}</th>
-                <td>
-                    {% if value is mapping %}
-                        <pre>{{ value | tojson(indent=2) }}</pre>
-                    {% elif value is sequence %}
-                        <ul>
-                        {% for item in value %}
-                            <li>
-                                {{ ('<a href=\"' ~ item ~ '.html">' ~ item ~ '</a>') if key.startswith('_') else item }}
-                            </li>
-                        {% endfor %}
-                        </ul>
-                    {% else %}
-                        {{ value }}
-                    {% endif %}
-                </td>
-            </tr>
-        {% endfor %}
-    </table>
+        <table>
+            {% for key, value in data.items() %}
+                <tr>
+                    <th>{{ key[1:] if key.startswith('_') else key }}</th>
+                    <td>
+                        {% if value is mapping %}
+                            <pre>{{ value | tojson(indent=2) }}</pre>
+                        {% elif value is sequence %}
+                            <ul>
+                            {% for item in value %}
+                                <li>
+                                    {{ ('<a href=\"' ~ item ~ '.html">' ~ item ~ '</a>') if key.startswith('_') else item }}
+                                </li>
+                            {% endfor %}
+                            </ul>
+                        {% else %}
+                            {{ value }}
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% if attachments %}
+
     <h1>Attachments</h1>
-    <table>
-        {% if attachments %}
-            <tr>
-                <th>text files</th>
-                <td>
-                    {% for attachment in attachments %}
-                        <ul>
-                            <li>
-                                <a href="{{ attachment ~ '.html' }}">{{ attachment }}</a>
-                            </li>
-                        </ul>
-                    {% endfor %}
-                </td>
-            </tr>
-        {% endif %}
-    </table>
+        <table>
+                <tr>
+                    <th>text files</th>
+                    <td>
+                        {% for attachment in attachments %}
+                            <ul>
+                                <li>
+                                    <a href="{{ attachment ~ '.html' }}">{{ attachment }}</a>
+                                </li>
+                            </ul>
+                        {% endfor %}
+                    </td>
+                </tr>
+        </table>
+    {% endif %}
 </body>
 </html>
