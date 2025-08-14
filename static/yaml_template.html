@@ -1,0 +1,50 @@
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{ title }}</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        td, th { border: 1px solid #ccc; padding: 8px; }
+        th { background: #f4f4f4; }
+    </style>
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    <table>
+        {% for key, value in data.items() %}
+            <tr>
+                <th>{{ key[1:] if key.startswith('_') else key }}</th>
+                <td>
+                    {% if value is mapping %}
+                        <pre>{{ value | tojson(indent=2) }}</pre>
+                    {% elif value is sequence %}
+                        <ul>
+                        {% for item in value %}
+                            <li>
+                                {{ ('<a href=\"' ~ item ~ '.html">' ~ item ~ '</a>') if key.startswith('_') else item }}
+                            </li>
+                        {% endfor %}
+                        </ul>
+                    {% else %}
+                        {{ value }}
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        {% if attachments %}
+            <tr>
+                <th>attachments</th>
+                <td>
+                    {% for attachment in attachments %}
+                        <ul>
+                            <li>
+                                <a href="{{ attachment ~ '.html' }}">{{ attachment }}</a>
+                            </li>
+                        </ul>
+                    {% endfor %}
+                </td>
+            </tr>
+        {% endif %}
+    </table>
+</body>
+</html>
