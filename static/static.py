@@ -78,8 +78,6 @@ def main(directory):
     # Create HTML for each YAML file
     for file in yaml_files:
         attachments = [txt.stem for txt in txt_files if (txt.stem).startswith(file.stem)] #TODO: not robust for ids with overlapping beginnings
-        print(file)
-        print(attachments)
         with open(file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         yaml_html = yaml_template.render(title="Metadata", data=data, attachments=attachments)
