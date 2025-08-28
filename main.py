@@ -243,22 +243,25 @@ def main(db_root: Path):
         fk_dict = docs_dict["__has_foreign_keys"]
         for primary in docs_dict:#js
             if not primary.startswith("__"):
-                print("#######" + primary)
+                print("=== primary: " + primary)
                 for foreign_key, _ in fk_dict.items():
-                    relations = docs_dict[primary][foreign_key]
-                    for relation, _ in relations.items():
-                        print("$$$$$$$$" + relation)
-                        item_list = docs_dict[primary][foreign_key][relation]
-                        for item in item_list:
-                            print(f"{collection_key} {primary} > {foreign_key} {item["id"]}")
-                            table = collection_key + relation + foreign_key
-                            conn.execute(f"INSERT INTO {table} ({collection_key + "_id"}, {foreign_key + "_id"}) VALUES (?, ?)",
-                                    (primary, item["id"]))
-                            conn.commit()
+                    try: # if this relation is not required...
+                        relations = docs_dict[primary][foreign_key]
+                        for relation, _ in relations.items():
+                            print("    foreign: " + relation)
+                            item_list = docs_dict[primary][foreign_key][relation]
+                            for item in item_list:
+                                print(f">>> {collection_key} {primary} > {foreign_key} [{relation}] {item["id"]}")
+                                table = collection_key + relation + foreign_key
+                                conn.execute(f"INSERT INTO {table} ({collection_key + "_id"}, {foreign_key + "_id"}) VALUES (?, ?)",
+                                        (primary, item["id"]))
+                                conn.commit()
+                    except Exception as e:
+                        print(f"{primary} has no relations to {foreign_key}: Exception: {e}" )
 
     find_is_foreign_keys(collections)
 
-    find_mentions(collections)
+    # find_mentions(collections)
 
     with open("db_dump.sql", "w") as f:
         for line in conn.iterdump():
