@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+     <meta charset="utf-8">
+    <title>{{ entity.title }}</title>
+</head>
+<body>
+    <h1>{{ entity.title }}</h1>
+
+    {% for relation in entity.relations %}
+        <h2>{{relation.relation_nature}}</h2>
+        <ul>
+            {% for item in relation.target_items %}
+                <li><a href="../{{ relation.target_table }}/{{ item }}.html">{{ item }}</a></li>
+            {% endfor %}
+        </ul>
+    {% endfor %}
+</body>
+</html>
