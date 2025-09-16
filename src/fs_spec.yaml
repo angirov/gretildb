@@ -1,0 +1,46 @@
+version: 1
+
+# Global ignore rules (applied everywhere)
+ignore:
+  dir_name_regex:
+    - "^_.*$"   # ignore collection folders starting with underscore
+
+# Required items at the root
+required:
+  files:
+    - "README.md"
+  dirs:
+    - "docs"
+    - "schemas"
+    - "scripts"
+
+# Directory-specific rules
+directories:
+  # root: only allow specific files at the top level
+  - path: "."
+    rules:
+      require_exists: true
+      only_allow_matching: true
+      allowed_names: ["README.md", "config.yaml"]
+  # docs: open, any files/folders allowed (still must exist per required.dirs)
+  - path: "docs"
+    rules:
+      allow_any: true
+
+  # schemas: only YAML files following the collection name pattern, no subdirs
+  - path: "schemas"
+    rules:
+      require_exists: true
+      allow_subdirs: false
+      file_name_regex: "^_[a-z0-9][a-z0-9-]*\\.yaml$"
+      only_allow_matching: true
+
+  # scripts: only Python/Bash files and README; require a README in each dir
+  - path: "scripts"
+    rules:
+      require_exists: true
+      recursive: true
+      only_allow_matching: true
+      allowed_extensions: [".py", ".sh"]
+      allowed_names: ["README.md", "readme.md"]
+      require_readme_per_dir: ["README.md", "readme.md"]
