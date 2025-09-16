@@ -6,6 +6,7 @@ import yaml
 import json
 from jsonschema import validate, ValidationError
 import sqlite3
+from sqlite3 import IntegrityError
 from pprint import pprint
 
 class Violation:
@@ -83,6 +84,13 @@ def report_violations(violations):
 #     return violations
 
 import os
+
+# SQL identifier quoting to allow dashes, spaces, etc. in names
+def quote_ident(name: str) -> str:
+    """Quote an SQL identifier for SQLite using double quotes.
+    Any embedded double quotes are doubled per SQL rules.
+    """
+    return '"' + str(name).replace('"', '""') + '"'
 
 def check_filenames_multiple_dots(file_list):
     """
@@ -200,7 +208,9 @@ def main(db_root: Path):
 
 
     for collection_key, docs_dict in collections.items():
-        conn.execute(f"CREATE TABLE {collection_key} (id TEXT PRIMARY KEY)")
+        conn.execute(
+            f"CREATE TABLE {quote_ident(collection_key)} ({quote_ident('id')} TEXT PRIMARY KEY)"
+        )
         conn.commit()
 
     # Extract foreign keys from schemas and create intermediate tables
@@ -209,55 +219,72 @@ def main(db_root: Path):
         for foreign_key, _ in docs_dict["__has_foreign_keys"].items():
             print(docs_dict["__has_foreign_keys"][foreign_key])
             for relation in docs_dict["__has_foreign_keys"][foreign_key]:
-                conn.execute(f"""
-                CREATE TABLE {collection_key + relation + foreign_key} (
-                    {collection_key + "_id"} TEXT,
-                    {foreign_key + "_id"} TEXT,
-                    PRIMARY KEY ({collection_key + "_id"}, {foreign_key + "_id"}),
-                    FOREIGN KEY ({collection_key + "_id"}) REFERENCES {collection_key}(id),
-                    FOREIGN KEY ({foreign_key + "_id"}) REFERENCES {foreign_key}(id)
+                join_table = collection_key + relation + foreign_key
+                left_col = collection_key + "_id"
+                right_col = foreign_key + "_id"
+                conn.execute(
+                    f"""
+                CREATE TABLE {quote_ident(join_table)} (
+                    {quote_ident(left_col)} TEXT,
+                    {quote_ident(right_col)} TEXT,
+                    PRIMARY KEY ({quote_ident(left_col)}, {quote_ident(right_col)}),
+                    FOREIGN KEY ({quote_ident(left_col)}) REFERENCES {quote_ident(collection_key)}({quote_ident('id')}),
+                    FOREIGN KEY ({quote_ident(right_col)}) REFERENCES {quote_ident(foreign_key)}({quote_ident('id')})
                 )
-                """)
+                    """
+                )
                 conn.commit()
 
     # Validate docs and create primary entries
     for collection_key, docs_dict in collections.items():
         dir = docs_dict["__dir_path"]
-        foreign_keys = docs_dict["__has_foreign_keys"]
+        # foreign_keys = docs_dict["__has_foreign_keys"]
         for doc in dir.rglob("*.yaml"):
             with open(doc) as f:
                 data = yaml.safe_load(f)
             try:
                 validate(instance=data, schema=docs_dict["__validation_schema"])
-                conn.execute(f"INSERT INTO {collection_key} (id) VALUES (?)", (doc.stem,))
+                conn.execute(
+                    f"INSERT INTO {quote_ident(collection_key)} ({quote_ident('id')}) VALUES (?)",
+                    (doc.stem,),
+                )
                 conn.commit()
                 collections[dir.name][doc.stem] = data
                 collections[dir.name][doc.stem]["path"] = str(doc.relative_to(db_root))
 
             except ValidationError as e:
                 print(f"❌ Validation error: {doc}", e.message)
+            except IntegrityError as e:
+                print(f"❌❌❌❌❌❌❌ Integrity error: {doc}", e)
 
-    pprint(collections)
+    # pprint(collections)
     # Fill the intermediate tables
     for collection_key, docs_dict in collections.items():
         fk_dict = docs_dict["__has_foreign_keys"]
         for primary in docs_dict:#js
             if not primary.startswith("__"):
-                print("=== primary: " + primary)
+                # print("=== primary: " + primary)
                 for foreign_key, _ in fk_dict.items():
                     try: # if this relation is not required...
                         relations = docs_dict[primary][foreign_key]
                         for relation, _ in relations.items():
-                            print("    foreign: " + relation)
+                            # print("    foreign: " + relation)
                             item_list = docs_dict[primary][foreign_key][relation]
                             for item in item_list:
-                                print(f">>> {collection_key} {primary} > {foreign_key} [{relation}] {item["id"]}")
+                                # print(f">>> {collection_key} {primary} > {foreign_key} [{relation}] {item["id"]}")
                                 table = collection_key + relation + foreign_key
-                                conn.execute(f"INSERT INTO {table} ({collection_key + "_id"}, {foreign_key + "_id"}) VALUES (?, ?)",
-                                        (primary, item["id"]))
+                                left_col = collection_key + "_id"
+                                right_col = foreign_key + "_id"
+                                conn.execute(
+                                    f"INSERT INTO {quote_ident(table)} ({quote_ident(left_col)}, {quote_ident(right_col)}) VALUES (?, ?)",
+                                    (primary, item["id"]),
+                                )
                                 conn.commit()
-                    except Exception as e:
-                        print(f"{primary} has no relations to {foreign_key}: Exception: {e}" )
+                    except KeyError as e:
+                        # print(f"INFO: {primary} has no relations to {foreign_key}: Exception: {e}" )
+                        continue
+                    except IntegrityError as e:
+                        print(f"❌❌❌❌❌❌❌ Integrity error: while insering {primary} > {item["id"]} into {table}", e) 
 
     find_is_foreign_keys(collections)
 

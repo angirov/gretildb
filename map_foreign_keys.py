@@ -3,6 +3,11 @@ from collections import defaultdict
 import json
 import sys
 
+
+def quote_ident(name: str) -> str:
+    """Quote an SQL identifier for SQLite (double quotes, escape embedded quotes)."""
+    return '"' + str(name).replace('"', '""') + '"'
+
 def map_foreign_keys(conn):
     """
     Build a dictionary mapping (referenced_table, referenced_column)
@@ -17,7 +22,7 @@ def map_foreign_keys(conn):
     fk_map = {}
 
     for table in tables:
-        cursor.execute(f"PRAGMA foreign_key_list({table})")
+        cursor.execute(f"PRAGMA foreign_key_list({quote_ident(table)})")
         for fk in cursor.fetchall():
             # fk format: (id, seq, table, from, to, on_update, on_delete, match)
             _, _, ref_table, from_col, to_col, *_ = fk
@@ -46,7 +51,7 @@ def map_row_references(conn):
     result = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
     for table in tables:
-        cursor.execute(f"PRAGMA foreign_key_list({table})")
+        cursor.execute(f"PRAGMA foreign_key_list({quote_ident(table)})")
         fks = cursor.fetchall()
         if not fks:
             continue
@@ -54,8 +59,8 @@ def map_row_references(conn):
         fk_cols = [(from_col, parent_table) for _, _, parent_table, from_col, _, *_ in fks]
 
         # dynamically build SELECT with all fk cols
-        cols = ", ".join(col for col, _ in fk_cols)
-        cursor.execute(f"SELECT {cols} FROM {table}")
+        cols = ", ".join(quote_ident(col) for col, _ in fk_cols)
+        cursor.execute(f"SELECT {cols} FROM {quote_ident(table)}")
         for row in cursor.fetchall():
             row = dict(zip([c for c, _ in fk_cols], row))
 

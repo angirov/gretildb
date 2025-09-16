@@ -1,2 +1,5 @@
 venv
-output
+db
+output*
+*.log
+*.sql
