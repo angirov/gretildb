@@ -31,6 +31,13 @@ TODO: how to keep track of the attachment format?
 
 Schemas forbit additional properties. Numbers are only recorded in numeric types.
 
+### Further testing / "hooks"
+one possible feature could be an option to run velidation/tesing scripts on the attachments (e.g. `xml`/`tei` etc. validation, or text encoding...). There could be a folder in the root directory called e.g. `scripts` containing python or bash scripts. The global config could point out which attachments of which collection should the exposed to which scripts (one by one or in bulk?). This idea is inspired by git hooks - maybe further technical details could be also consulted there. 
+
+There could also be general `pre` and `post` hooks where you can basically do whatever you want. E.g. adjust or replace the default static pages generation.
+
+The requirements file should be in the root and there must be some way to avoid conflicts with the main package requirements...
+
 ## Scaling
 There should be some mechanisms for keeping integrity between multiple related projects (same data model). based on the specialization of their maintainers and contributors (e.g. language and particular subject, e.g. Sanskrit Buddhist Shastra). 
 
