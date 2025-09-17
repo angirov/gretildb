@@ -5,14 +5,6 @@ ignore:
   dir_name_regex:
     - "^_.*$"   # ignore collection folders starting with underscore
 
-# Required items at the root
-required:
-  files:
-    - "README.md"
-  dirs:
-    - "docs"
-    - "schemas"
-    - "scripts"
 
 # Directory-specific rules
 directories:
@@ -25,6 +17,7 @@ directories:
   # docs: open, any files/folders allowed (still must exist per required.dirs)
   - path: "docs"
     rules:
+      require_exists: true
       allow_any: true
 
   # schemas: only YAML files following the collection name pattern, no subdirs
