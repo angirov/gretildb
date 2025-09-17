@@ -14,6 +14,7 @@
             display: flex;
             align-items: center;
             z-index: 1000;
+            gap: 1rem;
         }
         .sidebar {
             width: 20%;
@@ -36,12 +37,12 @@
         }
         pre { white-space: pre-wrap; word-wrap: break-word; }
     </style>
-</head>
+    <title>{{ title | default('Site') }}</title>
+  </head>
 <body>
     <div class="top-bar">
-        <h1 style="margin: 100; font-size: 1.2em;">GRETIL 2</h1>
-        <br>
-        <a href="index.html">Home</a>
+        <h1 style="margin: 0; font-size: 1.2em;">Dvarapandita DB</h1>
+        <a href="{{ home_href | default('index.html') }}">Home</a>
     </div>
 
     {% if not homepage %}
@@ -55,3 +56,4 @@
     </div>
 </body>
 </html>
+

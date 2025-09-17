@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""
+Render Full Site
+================
+
+Builds a combined HTML site that includes:
+- Metadata pages for YAML/TXT under the DB root (via render_static)
+- Relation pages per entity from the relations SQLite DB (via map_foreign_keys + render_relations)
+
+CLI
+- --root: DB root (required)
+- --db: SQLite relations database (required)
+- --out: output directory (default: <root>/site)
+- --title: title for the metadata homepage (default: "Table of Contents")
+"""
+import argparse
+import sqlite3
+import yaml
+from pathlib import Path
+
+import os
+import json
+from jinja2 import Environment, FileSystemLoader
+
+
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(description="Render combined metadata + relations site")
+    ap.add_argument("--root", required=True, help="DB root path")
+    ap.add_argument("--db", required=True, help="SQLite relations database path")
+    ap.add_argument("--out", help="Output directory (default: <root>/site)")
+    ap.add_argument("--title", default="Table of Contents", help="Metadata homepage title")
+    return ap.parse_args(argv)
+
+
+# --------------------
+# Helpers (self-contained)
+# --------------------
+
+def map_row_references(conn: sqlite3.Connection):
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = [row[0] for row in cur.fetchall()]
+
+    from collections import defaultdict
+    result = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+    for table in tables:
+        cur.execute(f"PRAGMA foreign_key_list(\"{table.replace('"', '""')}\")")
+        fks = cur.fetchall()
+        if not fks:
+            continue
+
+        fk_cols = [(from_col, parent_table) for _, _, parent_table, from_col, _, *_ in fks]
+        cols = ", ".join(f'"{c.replace("\"","\"\"")}"' for c, _ in fk_cols)
+        cur.execute(f"SELECT {cols} FROM \"{table.replace('"', '""')}\"")
+        for row in cur.fetchall():
+            row_map = dict(zip([c for c, _ in fk_cols], row))
+            for col, parent_table in fk_cols:
+                parent_value = row_map[col]
+                if parent_value is None:
+                    continue
+                for other_col, _ in fk_cols:
+                    if other_col == col:
+                        continue
+                    other_value = row_map[other_col]
+                    if other_value is not None:
+                        result[parent_table][parent_value][table].append(other_value)
+    return result
+
+
+def get_target_folder_and_link(parent_table: str, child_table: str):
+    parts = [p for p in child_table.split("_") if p]
+    if len(parts) < 3:
+        return child_table, "related"
+    left_table = f"_{parts[0]}"
+    relation = parts[1]
+    right_table = f"_{parts[2]}"
+    if parent_table == left_table:
+        target = right_table
+    elif parent_table == right_table:
+        target = left_table
+    else:
+        target = left_table
+    return target, relation
+
+
+def build_tree(base_dir: Path) -> dict:
+    tree: dict = {}
+    for folder, dirs, files in os.walk(base_dir):
+        rel_path = Path(folder).relative_to(base_dir)
+        if not str(rel_path) or not str(rel_path).split(os.sep)[0].startswith("_"):
+            continue
+        current = tree
+        for part in rel_path.parts:
+            current = current.setdefault(part, {"yaml_files": [], "txt_files": [], "subfolders": {}})[
+                "subfolders"
+            ]
+        yaml_files = [Path(folder) / f for f in files if f.endswith(".yaml")]
+        txt_files = [Path(folder) / f for f in files if f.endswith(".txt")]
+        if rel_path.parts:
+            parent = tree
+            for part in rel_path.parts[:-1]:
+                parent = parent[part]["subfolders"]
+            parent[rel_path.parts[-1]] = {"yaml_files": yaml_files, "txt_files": txt_files, "subfolders": {}}
+        else:
+            for f in yaml_files:
+                tree.setdefault(base_dir.name, {"yaml_files": [], "txt_files": [], "subfolders": {}})["yaml_files"].append(f)
+            for f in txt_files:
+                tree.setdefault(base_dir.name, {"yaml_files": [], "txt_files": [], "subfolders": {}})["txt_files"].append(f)
+    return tree
+
+
+def find_attachments(yaml_file: Path, all_txt: list[Path]) -> list[str]:
+    attachments: list[str] = []
+    prefix = yaml_file.stem
+    plen = len(prefix)
+    for txt in all_txt:
+        stem = txt.stem
+        if not stem.startswith(prefix):
+            continue
+        if len(stem) == plen or not stem[plen].isalnum():
+            attachments.append(stem)
+    return attachments
+
+
+def render_metadata_pages(root: Path, out_dir: Path, title: str) -> None:
+    env = Environment(loader=FileSystemLoader("static"))
+    toc_template = env.get_template("toc_template.html")
+    txt_template = env.get_template("txt_template.html")
+    yaml_template = env.get_template("yaml_template.html")
+
+    txt_files = sorted(root.rglob("*.txt"))
+    yaml_files = sorted(root.rglob("*.yaml"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tree = build_tree(root)
+    toc_html = toc_template.render(tree=tree)
+
+    for file in txt_files:
+        text_content = file.read_text(encoding="utf-8")
+        file_html = txt_template.render(
+            content=f"<h1>{file.stem}</h1><pre>{text_content}</pre>", toc_html=toc_html, homepage=False
+        )
+        (out_dir / f"{file.stem}.html").write_text(file_html, encoding="utf-8")
+
+    for file in yaml_files:
+        attachments = find_attachments(file, txt_files)
+        try:
+            data = yaml.safe_load(file.read_text(encoding="utf-8"))
+        except Exception as e:
+            data = {"_error": f"YAML load failed: {e}"}
+        yaml_html = yaml_template.render(title="Metadata", data=data, attachments=attachments)
+        file_html = txt_template.render(
+            content=f"<h1>{file.stem}</h1><pre>{yaml_html}</pre>", toc_html=toc_html, homepage=False
+        )
+        (out_dir / f"{file.stem}.html").write_text(file_html, encoding="utf-8")
+
+    index_html = txt_template.render(
+        content=f"<h1>{title}</h1>" + toc_html, toc_html=toc_html, title=title, homepage=True
+    )
+    (out_dir / "index.html").write_text(index_html, encoding="utf-8")
+
+
+def render_relations_pages(rows_map: dict, out_dir: Path) -> None:
+    env = Environment(loader=FileSystemLoader("html_templates"))
+    entity_tmpl = env.get_template("entity_template.html")
+    index_tmpl = env.get_template("index.html")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for table, rows in rows_map.items():
+        tdir = out_dir / table
+        tdir.mkdir(parents=True, exist_ok=True)
+        for row_id, relations in rows.items():
+            page = {"title": row_id, "relations": []}
+            for rel_table, target_items in relations.items():
+                target_table, relation = get_target_folder_and_link(table, rel_table)
+                page["relations"].append({
+                    "target_table": target_table,
+                    "relation_nature": relation,
+                    "target_items": target_items,
+                })
+            html = entity_tmpl.render(entity=page)
+            (tdir / f"{row_id}.html").write_text(html, encoding="utf-8")
+
+    target_folders: dict[str, dict[str, str]] = {}
+    for table, rows in rows_map.items():
+        target_folders[table] = {}
+        for rel_table in {rt for rels in rows.values() for rt in rels.keys()}:
+            tgt, _ = get_target_folder_and_link(table, rel_table)
+            target_folders[table][rel_table] = tgt
+    idx_html = index_tmpl.render(result=rows_map, target_folders=target_folders)
+    (out_dir / "index.html").write_text(idx_html, encoding="utf-8")
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    root = Path(args.root).resolve()
+    if not root.exists() or not root.is_dir():
+        print(f"Root not found: {root}")
+        return 2
+    db_path = Path(args.db).resolve()
+    if not db_path.exists():
+        print(f"SQLite DB not found: {db_path}")
+        return 2
+    out_dir = Path(args.out).resolve() if args.out else (root / "site")
+
+    # Tables will be direct subdirs of site root
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1) Compute row-level FK map
+    with sqlite3.connect(str(db_path)) as conn:
+        rows_map = map_row_references(conn)
+    # Do not write fk_rows.json into the site; keep rows_map in memory only
+
+    # 2) Build combined entity pages (metadata + relations)
+    def collect_entities(root_dir: Path):
+        entities = {}
+        # Find underscore collections
+        for entry in root_dir.iterdir():
+            if not entry.is_dir() or not entry.name.startswith("_"):
+                continue
+            table = entry.name
+            # Collect YAML items and attachments recursively
+            items = {}
+            txt_files = list(entry.rglob("*.txt"))
+            for yml in entry.rglob("*.yaml"):
+                item_id = yml.stem
+                # attachments boundary-aware
+                attachments = []
+                plen = len(item_id)
+                for txt in txt_files:
+                    stem = txt.stem
+                    if not stem.startswith(item_id):
+                        continue
+                    if len(stem) == plen or not stem[plen].isalnum():
+                        attachments.append(stem)
+                try:
+                    data = json.loads(json.dumps(yaml.safe_load(yml.read_text(encoding="utf-8"))))
+                except Exception as e:
+                    data = {"_error": f"YAML load failed: {e}"}
+                items[item_id] = {
+                    "path": yml,
+                    "data": data,
+                    "attachments": attachments,
+                }
+            entities[table] = items
+        return entities
+
+    entities = collect_entities(root)
+
+    # Render combined pages using a simple Jinja template
+    from jinja2 import Environment, FileSystemLoader
+    tpl_dir = (Path(__file__).parent / "templates").resolve()
+    env = Environment(loader=FileSystemLoader(str(tpl_dir)))
+    combined_tmpl = env.get_template("entity.html")
+    txt_template = env.get_template("txt_template.html")
+
+    # Ensure dirs for per-table pages will be created below
+    # Build a sidebar menu (TOC) that links to combined entity pages
+    def build_entities_toc(entities_map: dict, link_prefix: str) -> str:
+        parts = ["<ul class='folder-tree'>"]
+        for table, items in entities_map.items():
+            table_disp = table.lstrip('_')
+            parts.append("<li><details open><summary>" + table_disp + "</summary><ul>")
+            for item_id in sorted(items.keys()):
+                href = f"{link_prefix}{table_disp}/{item_id}.html"
+                parts.append(f"<li><a href='{href}'>{item_id}</a></li>")
+            parts.append("</ul></details></li>")
+        parts.append("</ul>")
+        return "\n".join(parts)
+
+    toc_for_index = build_entities_toc(entities, "")
+    toc_for_entries = build_entities_toc(entities, "../")
+
+    for table, items in entities.items():
+        table_disp = table.lstrip('_')
+        tdir = out_dir / table_disp
+        tdir.mkdir(parents=True, exist_ok=True)
+        rels_for_table = rows_map.get(table, {})
+        for item_id, info in items.items():
+            metadata = info["data"]
+            attachments = info["attachments"]
+            relations = []
+            for rel_table, target_items in rels_for_table.get(item_id, {}).items():
+                target_table, relation = get_target_folder_and_link(table, rel_table)
+                target_table = target_table.lstrip('_')
+                relations.append({
+                    "target_table": target_table,
+                    "relation_nature": relation,
+                    "target_items": target_items,
+                })
+            content_html = combined_tmpl.render(
+                table=table_disp,
+                item_id=item_id,
+                metadata=metadata,
+                attachments=attachments,
+                relations=relations,
+            )
+            # From <site>/<table>/<id>.html back to <site>/index.html
+            page_html = txt_template.render(content=content_html, toc_html=toc_for_entries, homepage=False, home_href='../index.html')
+            (tdir / f"{item_id}.html").write_text(page_html, encoding="utf-8")
+    # Index page using the same menu/sidebar layout
+    index_content = "<h1>Entities</h1>"
+    index_html = txt_template.render(content=index_content, toc_html=toc_for_index, homepage=False, home_href='index.html')
+    (out_dir / "index.html").write_text(index_html, encoding="utf-8")
+
+    print(f"Entity pages written under {out_dir}; index at {out_dir/'index.html'}")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main(sys.argv[1:]))
