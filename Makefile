@@ -9,7 +9,7 @@ MAP ?= $(OUT)/collections.json
 RELDB ?= $(OUT)/db.sqlite
 DUMPSQL ?= $(OUT)/db_dump.sql
 
-.PHONY: all fs collections relations map clean re legacy test test-pipeline clean-test
+.PHONY: all fs collections relations map fkmap clean re legacy test test-pipeline clean-test
 
 all: fs collections relations
 
@@ -32,6 +32,10 @@ relations:
 	fi; \
 	exit $$status
 
+fkmap:
+	@mkdir -p $(OUT)
+	$(PY) src/map_foreign_keys.py --db $(RELDB) --out $(OUT)/fk_rows.json
+
 clean:
 	rm -f $(RELDB) $(DUMPSQL) $(MAP)
 	-@rmdir $(OUT) 2>/dev/null || true
@@ -47,4 +51,3 @@ keep:
 # Legacy target using main.py
 legacy re:
 	rm -f *.sqlite && time $(PY) main.py $(ROOT)
-
