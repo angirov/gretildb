@@ -20,6 +20,7 @@ from pathlib import Path
 
 import os
 import json
+import shutil
 from jinja2 import Environment, FileSystemLoader
 
 
@@ -36,6 +37,7 @@ def parse_args(argv=None):
 # Helpers (self-contained)
 # --------------------
 
+# Stylesheet is maintained in src/templates/site.css and copied to <site>/site.css
 def map_row_references(conn: sqlite3.Connection):
     cur = conn.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -254,12 +256,20 @@ def main(argv=None) -> int:
     txt_template = env.get_template("txt_template.html")
 
     # Ensure dirs for per-table pages will be created below
+    # Copy site.css from templates into the site root
+    css_src = tpl_dir / "site.css"
+    css_path = out_dir / "site.css"
+    try:
+        if css_src.exists():
+            shutil.copyfile(css_src, css_path)
+    except Exception:
+        pass
     # Build a sidebar menu (TOC) that links to combined entity pages
     def build_entities_toc(entities_map: dict, link_prefix: str) -> str:
         parts = ["<ul class='folder-tree'>"]
         for table, items in entities_map.items():
             table_disp = table.lstrip('_')
-            parts.append("<li><details open><summary>" + table_disp + "</summary><ul>")
+            parts.append("<li><details><summary>" + table_disp + "</summary><ul>")
             for item_id in sorted(items.keys()):
                 href = f"{link_prefix}{table_disp}/{item_id}.html"
                 parts.append(f"<li><a href='{href}'>{item_id}</a></li>")
@@ -295,11 +305,11 @@ def main(argv=None) -> int:
                 relations=relations,
             )
             # From <site>/<table>/<id>.html back to <site>/index.html
-            page_html = txt_template.render(content=content_html, toc_html=toc_for_entries, homepage=False, home_href='../index.html')
+            page_html = txt_template.render(content=content_html, toc_html=toc_for_entries, homepage=False, home_href='../index.html', css_href='../site.css')
             (tdir / f"{item_id}.html").write_text(page_html, encoding="utf-8")
     # Index page using the same menu/sidebar layout
     index_content = "<h1>Entities</h1>"
-    index_html = txt_template.render(content=index_content, toc_html=toc_for_index, homepage=False, home_href='index.html')
+    index_html = txt_template.render(content=index_content, toc_html=toc_for_index, homepage=False, home_href='index.html', css_href='site.css')
     (out_dir / "index.html").write_text(index_html, encoding="utf-8")
 
     print(f"Entity pages written under {out_dir}; index at {out_dir/'index.html'}")

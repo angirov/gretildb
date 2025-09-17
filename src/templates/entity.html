@@ -1,0 +1,48 @@
+<h1>{{ table }}: {{ item_id }}</h1>
+
+<h2>Metadata</h2>
+{% macro render_value(val, parent_key=None) %}
+  {% if val is mapping %}
+    <table>
+    {% for k, v in val.items() %}
+      <tr>
+        <th>{{ k[1:] if k.startswith('_') else k }}</th>
+        <td>{{ render_value(v, k) }}</td>
+      </tr>
+    {% endfor %}
+    </table>
+  {% elif val is sequence and (val is not string) %}
+    <ul>
+    {% for item in val %}
+      <li>{{ render_value(item, parent_key) }}</li>
+    {% endfor %}
+    </ul>
+  {% else %}
+    {{ val }}
+  {% endif %}
+{% endmacro %}
+{{ render_value(metadata) }}
+
+{% if attachments %}
+<h2>Attachments</h2>
+<ul>
+  {% for a in attachments %}
+    <li>{{ a }}</li>
+  {% endfor %}
+  </ul>
+{% endif %}
+
+<h2>Relations</h2>
+{% if relations %}
+  {% for rel in relations %}
+    <h3>{{ rel.relation_nature }} → {{ rel.target_table }}</h3>
+    <ul>
+    {% for tid in rel.target_items %}
+      <li><a href="../{{ rel.target_table }}/{{ tid }}.html">{{ tid }}</a></li>
+    {% endfor %}
+    </ul>
+  {% endfor %}
+{% else %}
+  <p>No relations.</p>
+{% endif %}
+
