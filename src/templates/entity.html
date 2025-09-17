@@ -27,7 +27,7 @@
 <h2>Attachments</h2>
 <ul>
   {% for a in attachments %}
-    <li>{{ a }}</li>
+    <li><a href="{{ a.href }}">{{ a.label }}</a></li>
   {% endfor %}
   </ul>
 {% endif %}
@@ -45,4 +45,3 @@
 {% else %}
   <p>No relations.</p>
 {% endif %}
-

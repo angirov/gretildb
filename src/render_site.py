@@ -177,11 +177,35 @@ def main(argv=None) -> int:
                     "relation_nature": relation,
                     "target_items": target_items,
                 })
+            # Prepare and copy attachments into the site under the collection folder
+            attachments_info = []
+            for att in attachments:
+                try:
+                    att_path = Path(att)
+                    # Expect paths relative to root (e.g., _works/sub/att.txt)
+                    if att_path.parts and att_path.parts[0] == table:
+                        rel_in_coll = Path(*att_path.parts[1:])
+                    else:
+                        # Fallback: treat as filename at collection root
+                        rel_in_coll = att_path.name and Path(att_path.name) or att_path
+                    src = root / att_path
+                    dst = tdir / rel_in_coll
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    if src.exists():
+                        try:
+                            shutil.copyfile(src, dst)
+                        except Exception:
+                            pass
+                        href = rel_in_coll.as_posix()
+                        label = rel_in_coll.name
+                        attachments_info.append({"href": href, "label": label})
+                except Exception:
+                    continue
             content_html = combined_tmpl.render(
                 table=table_disp,
                 item_id=item_id,
                 metadata=metadata,
-                attachments=attachments,
+                attachments=attachments_info,
                 relations=relations,
             )
             # From <site>/<table>/<id>.html back to <site>/index.html
