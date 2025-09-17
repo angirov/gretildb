@@ -1,0 +1,35 @@
+type: object
+additionalProperties: no
+required:
+  - collections
+properties:
+  collections:
+    type: array
+    items:
+      type: object
+      additionalProperties: no
+      properties:
+        id_patter:
+          type: string
+        allowed_attachments:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: no
+            properties:
+              extension:
+                type: string
+              required:
+                type: bool # default should be false
+              tag_pattern:
+                type: string
+              validation_scripts:
+                type: array
+                minItems: 1
+                maxItems: 100
+                items:
+                  type: string
+                  pattern: "^[a-z][a-z-_]*.(py|sh)$"
+
