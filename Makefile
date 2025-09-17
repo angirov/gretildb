@@ -31,9 +31,9 @@ fkmap: relations
 	@mkdir -p $(OUT)
 	$(PY) src/map_foreign_keys.py --db $(RELDB) --out $(OUT)/fk_rows.json
 
-site: relations
+site: relations fkmap
 	@mkdir -p $(SITE)
-	$(PY) src/render_site.py --root $(ROOT) --db $(RELDB) --out $(SITE)
+	$(PY) src/render_site.py --root $(ROOT) --fkmap $(OUT)/fk_rows.json --out $(SITE)
 
 clean:
 	@if [ -z "$(KEEP_INTERMEDIATE)" ]; then \

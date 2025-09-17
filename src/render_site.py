@@ -14,7 +14,6 @@ CLI
 - --title: title for the metadata homepage (default: "Table of Contents")
 """
 import argparse
-import sqlite3
 import yaml
 from pathlib import Path
 
@@ -27,7 +26,7 @@ from jinja2 import Environment, FileSystemLoader
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Render combined metadata + relations site")
     ap.add_argument("--root", required=True, help="DB root path")
-    ap.add_argument("--db", required=True, help="SQLite relations database path")
+    ap.add_argument("--fkmap", required=True, help="Path to fk_rows.json produced by map_foreign_keys.py")
     ap.add_argument("--out", help="Output directory (default: <root>/site)")
     ap.add_argument("--title", default="Table of Contents", help="Metadata homepage title")
     return ap.parse_args(argv)
@@ -38,37 +37,6 @@ def parse_args(argv=None):
 # --------------------
 
 # Stylesheet is maintained in src/templates/site.css and copied to <site>/site.css
-def map_row_references(conn: sqlite3.Connection):
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = [row[0] for row in cur.fetchall()]
-
-    from collections import defaultdict
-    result = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-
-    for table in tables:
-        cur.execute(f"PRAGMA foreign_key_list(\"{table.replace('"', '""')}\")")
-        fks = cur.fetchall()
-        if not fks:
-            continue
-
-        fk_cols = [(from_col, parent_table) for _, _, parent_table, from_col, _, *_ in fks]
-        cols = ", ".join(f'"{c.replace("\"","\"\"")}"' for c, _ in fk_cols)
-        cur.execute(f"SELECT {cols} FROM \"{table.replace('"', '""')}\"")
-        for row in cur.fetchall():
-            row_map = dict(zip([c for c, _ in fk_cols], row))
-            for col, parent_table in fk_cols:
-                parent_value = row_map[col]
-                if parent_value is None:
-                    continue
-                for other_col, _ in fk_cols:
-                    if other_col == col:
-                        continue
-                    other_value = row_map[other_col]
-                    if other_value is not None:
-                        result[parent_table][parent_value][table].append(other_value)
-    return result
-
 
 def get_target_folder_and_link(parent_table: str, child_table: str):
     parts = [p for p in child_table.split("_") if p]
@@ -198,18 +166,21 @@ def main(argv=None) -> int:
     if not root.exists() or not root.is_dir():
         print(f"Root not found: {root}")
         return 2
-    db_path = Path(args.db).resolve()
-    if not db_path.exists():
-        print(f"SQLite DB not found: {db_path}")
+    fk_path = Path(args.fkmap).resolve()
+    if not fk_path.exists():
+        print(f"FK map not found: {fk_path}")
         return 2
     out_dir = Path(args.out).resolve() if args.out else (root / "site")
 
     # Tables will be direct subdirs of site root
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Compute row-level FK map
-    with sqlite3.connect(str(db_path)) as conn:
-        rows_map = map_row_references(conn)
+    # 1) Obtain row-level FK map from provided JSON file
+    try:
+        rows_map = json.loads(fk_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"Failed to read FK map JSON: {fk_path}: {e}")
+        return 2
     # Do not write fk_rows.json into the site; keep rows_map in memory only
 
     # 2) Build combined entity pages (metadata + relations)
