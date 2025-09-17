@@ -13,7 +13,7 @@ Validation performed
   ``_<name>.yaml`` in the schemas directory (default: ``<root>/schemas``).
 - Item YAMLs are parsed and validated against the collection schema
   using Draft 2020-12 JSON Schema.
-- Attachment rules are read from a config YAML (see ``src/config_schema.yaml``)
+- Attachment rules are read from a config YAML (see ``src/settings_schema.yaml``)
   and may impose per-extension requirements, tag regex patterns, and optional
   external validation hooks to run per-attachment.
 
@@ -21,9 +21,11 @@ CLI
 ---
 - --root: path containing underscore collections (required)
 - --schemas: path to schemas dir (defaults to ``<root>/schemas``)
-- --config: path to settings/config YAML defining rules (required)
+- --config: path to settings/config YAML defining rules (defaults to ``<root>/config.yaml``)
 - --hooks: directory containing optional hook scripts referenced by config
 - --run-hooks: actually execute hook scripts (disabled by default)
+ - --map-out: path to write a JSON map of collections/items/attachments
+   (defaults to ``<root>/collections.json``)
 
 Exit codes
 ----------
@@ -36,6 +38,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -165,7 +168,7 @@ def validate_instance_with_schema(instance: dict, schema: dict, src_path: Path) 
 
 
 def group_items_and_attachments(col_path: Path) -> Tuple[Dict[str, Path], Dict[str, List[Path]], List[Path]]:
-    """Partition a collection directory into items and attachments.
+    """Partition a collection subtree into items and attachments (recursive).
 
     Returns
     -------
@@ -177,10 +180,12 @@ def group_items_and_attachments(col_path: Path) -> Tuple[Dict[str, Path], Dict[s
     items: Dict[str, Path] = {}
     by_base: Dict[str, List[Path]] = {}
     stray: List[Path] = []
-    for p in col_path.iterdir():
-        if p.is_dir():
+    # Walk recursively; subfolders are for user convenience only
+    for p in col_path.rglob("*"):
+        if not p.is_file():
             continue
         if p.suffix.lower() == ".yaml":
+            # Item identified by basename; subdir has no semantic meaning
             items[p.stem] = p
         else:
             stem = p.stem
@@ -190,6 +195,48 @@ def group_items_and_attachments(col_path: Path) -> Tuple[Dict[str, Path], Dict[s
             base, _tag = stem.split("_", 1)
             by_base.setdefault(base, []).append(p)
     return items, by_base, stray
+
+
+def build_collection_map(col_path: Path, root: Path) -> Dict[str, Dict[str, object]]:
+    """Return a mapping of item -> paths for a single collection directory.
+
+    The mapping shape is:
+    {"<item>": {"item_path": "...", "attachments": ["..."]}}
+    Paths are relative to ``root``.
+    """
+    items, by_base, _ = group_items_and_attachments(col_path)
+    out: Dict[str, Dict[str, object]] = {}
+    for base, item_path in sorted(items.items()):
+        atts = [str(p.relative_to(root)) for p in sorted(by_base.get(base, []), key=lambda pp: pp.name)]
+        try:
+            data = load_yaml(item_path)
+        except Exception as e:
+            data = {"_error": f"YAML load failed: {e}"}
+        out[base] = {
+            "item_path": str(item_path.relative_to(root)),
+            "item_data": data,
+            "attachments": atts,
+        }
+    return out
+
+
+def rules_to_dict(rules: Optional[CollectionRules]) -> Optional[Dict[str, object]]:
+    """Convert CollectionRules to a JSON-serializable dict."""
+    if rules is None:
+        return None
+    return {
+        "name": rules.name,
+        "id_pattern": (rules.id_re.pattern if rules.id_re is not None else None),
+        "allowed_attachments": [
+            {
+                "extension": a.ext,
+                "required": a.required,
+                "tag_pattern": (a.tag_re.pattern if a.tag_re is not None else None),
+                "validation_scripts": list(a.validators) if a.validators else [],
+            }
+            for a in rules.allowed
+        ],
+    }
 
 
 def run_hook(hooks_dir: Path, script_name: str, target_path: Path) -> Tuple[bool, str]:
@@ -312,9 +359,10 @@ def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description="Validate underscore collections, items, and attachments")
     ap.add_argument("--root", required=True, help="Root directory that contains collections (e.g., db_sample)")
     ap.add_argument("--schemas", required=False, help="Path to schemas directory (default: <root>/schemas)")
-    ap.add_argument("--config", required=True, help="Path to settings config YAML (see src/config_schema.yaml)")
+    ap.add_argument("--config", required=False, help="Path to settings config YAML (default: <root>/config.yaml; see src/settings_schema.yaml)")
     ap.add_argument("--hooks", required=False, help="Directory with validation scripts referenced in config")
     ap.add_argument("--run-hooks", action="store_true", help="Run external validation scripts for attachments")
+    ap.add_argument("--map-out", required=False, help="Path to write JSON map (default: <root>/collections.json)")
     args = ap.parse_args(argv[1:])
 
     root = Path(args.root).resolve()
@@ -328,16 +376,43 @@ def main(argv: List[str]) -> int:
         print(f"Schemas directory not found: {schemas_dir}")
         return 2
 
-    rules_all = parse_settings(Path(args.config).resolve())
+    # Determine config path (default to <root>/config.yaml)
+    cfg_path = Path(args.config).resolve() if args.config else (root / "config.yaml").resolve()
+    if not cfg_path.exists():
+        print(f"Config file not found: {cfg_path}")
+        return 2
+    rules_all = parse_settings(cfg_path)
 
     # Discover collections as underscore-prefixed directories
     collections = [p for p in root.iterdir() if p.is_dir() and p.name.startswith("_")]
     errors: List[str] = []
+
+    # Build JSON map scaffold
+    db_map: Dict[str, object] = {
+        "root": str(root),
+        "collections": {},
+    }
     for col in sorted(collections, key=lambda p: p.name):
         crules = find_col_rules(col.name, rules_all)
         errors.extend(
             validate_collection(col, schemas_dir, crules, hooks_dir, bool(args.run_hooks))
         )
+        # Always add to the map, regardless of validation outcome
+        db_map["collections"][col.name] = {
+            "collection_path": str(col.relative_to(root)),
+            "rules": rules_to_dict(crules),
+            "schema_path": str((schemas_dir / f"{col.name}.yaml").resolve()),
+            "items": build_collection_map(col, root),
+        }
+
+    # Write JSON map
+    out_path = Path(args.map_out).resolve() if args.map_out else (root / "collections.json")
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(db_map, fh, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Warning: failed to write map JSON to {out_path}: {e}")
 
     if errors:
         print("Collection validation failed:")
