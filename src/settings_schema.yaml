@@ -33,3 +33,4 @@ properties:
                   type: string
                   pattern: "^[a-z][a-z-_]*.(py|sh)$"
 
+# TODO: for rendering: order of collections in the menu, default title field

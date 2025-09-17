@@ -23,15 +23,6 @@
 {% endmacro %}
 {{ render_value(metadata) }}
 
-{% if attachments %}
-<h2>Attachments</h2>
-<ul>
-  {% for a in attachments %}
-    <li><a href="{{ a.href }}">{{ a.label }}</a></li>
-  {% endfor %}
-  </ul>
-{% endif %}
-
 <h2>Relations</h2>
 {% if relations %}
   {% for rel in relations %}
@@ -44,4 +35,13 @@
   {% endfor %}
 {% else %}
   <p>No relations.</p>
+{% endif %}
+
+{% if attachments %}
+<h2>Attachments</h2>
+<ul>
+  {% for a in attachments %}
+    <li><a href="{{ a.href }}">{{ a.label }}</a></li>
+  {% endfor %}
+  </ul>
 {% endif %}
