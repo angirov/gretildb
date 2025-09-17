@@ -27,6 +27,7 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Render combined metadata + relations site")
     ap.add_argument("--root", required=True, help="DB root path")
     ap.add_argument("--fkmap", required=True, help="Path to fk_rows.json produced by map_foreign_keys.py")
+    ap.add_argument("--collections", required=True, help="Path to collections.json produced by validate_collections.py")
     ap.add_argument("--out", help="Output directory (default: <root>/site)")
     ap.add_argument("--title", default="Table of Contents", help="Metadata homepage title")
     return ap.parse_args(argv)
@@ -170,6 +171,10 @@ def main(argv=None) -> int:
     if not fk_path.exists():
         print(f"FK map not found: {fk_path}")
         return 2
+    coll_path = Path(args.collections).resolve()
+    if not coll_path.exists():
+        print(f"Collections map not found: {coll_path}")
+        return 2
     out_dir = Path(args.out).resolve() if args.out else (root / "site")
 
     # Tables will be direct subdirs of site root
@@ -183,41 +188,25 @@ def main(argv=None) -> int:
         return 2
     # Do not write fk_rows.json into the site; keep rows_map in memory only
 
-    # 2) Build combined entity pages (metadata + relations)
-    def collect_entities(root_dir: Path):
-        entities = {}
-        # Find underscore collections
-        for entry in root_dir.iterdir():
-            if not entry.is_dir() or not entry.name.startswith("_"):
-                continue
-            table = entry.name
-            # Collect YAML items and attachments recursively
-            items = {}
-            txt_files = list(entry.rglob("*.txt"))
-            for yml in entry.rglob("*.yaml"):
-                item_id = yml.stem
-                # attachments boundary-aware
-                attachments = []
-                plen = len(item_id)
-                for txt in txt_files:
-                    stem = txt.stem
-                    if not stem.startswith(item_id):
-                        continue
-                    if len(stem) == plen or not stem[plen].isalnum():
-                        attachments.append(stem)
-                try:
-                    data = json.loads(json.dumps(yaml.safe_load(yml.read_text(encoding="utf-8"))))
-                except Exception as e:
-                    data = {"_error": f"YAML load failed: {e}"}
-                items[item_id] = {
-                    "path": yml,
-                    "data": data,
-                    "attachments": attachments,
-                }
-            entities[table] = items
-        return entities
+    # 2) Build combined entity pages (metadata + relations) using collections.json
+    try:
+        collections_map = json.loads(coll_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"Failed to read collections JSON: {coll_path}: {e}")
+        return 2
 
-    entities = collect_entities(root)
+    entities: dict = {}
+    for coll_name, coll_info in (collections_map.get("collections") or {}).items():
+        items = coll_info.get("items") or {}
+        mapped = {}
+        for item_id, info in items.items():
+            data = info.get("item_data")
+            if data is None:
+                # Keep structure predictable
+                data = {}
+            attachments = info.get("attachments") or []
+            mapped[item_id] = {"data": data, "attachments": attachments}
+        entities[coll_name] = mapped
 
     # Render combined pages using a simple Jinja template
     from jinja2 import Environment, FileSystemLoader

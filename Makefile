@@ -33,7 +33,7 @@ fkmap: relations
 
 site: relations fkmap
 	@mkdir -p $(SITE)
-	$(PY) src/render_site.py --root $(ROOT) --fkmap $(OUT)/fk_rows.json --out $(SITE)
+	$(PY) src/render_site.py --root $(ROOT) --fkmap $(OUT)/fk_rows.json --collections $(MAP) --out $(SITE)
 
 clean:
 	@if [ -z "$(KEEP_INTERMEDIATE)" ]; then \
