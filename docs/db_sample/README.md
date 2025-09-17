@@ -7,7 +7,7 @@ Overview
 --------
 - The validator enforces structure and naming rules defined in `docs/fs_spec.yaml`.
 - Collections (folders starting with `_`) are ignored by validation to keep the sample simple.
-- The `schemas/` and `scripts/` folders are constrained; `docs/` is open for any content.
+- The `schemas/` and `scripts/` folders are constrained; `docs/` is open for any content.   
 
 Expected Layout (top level)
 ---------------------------
