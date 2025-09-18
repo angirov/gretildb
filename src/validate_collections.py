@@ -167,18 +167,18 @@ def validate_instance_with_schema(instance: dict, schema: dict, src_path: Path) 
     return errors
 
 
-def group_items_and_attachments(col_path: Path) -> Tuple[Dict[str, Path], Dict[str, List[Path]], List[Path]]:
+def group_items_and_attachments(col_path: Path) -> Tuple[List[Dict[str, object]], List[Dict[str, object]], List[Path]]:
     """Partition a collection subtree into items and attachments (recursive).
 
     Returns
     -------
-    tuple(dict, dict, list)
-        - items: mapping of item base name -> item YAML path
-        - by_base: mapping of item base name -> list of attachment paths
+    tuple(list, list, list)
+        - items: list of {"id": <base>, "item_path": Path}
+        - attachments: list of {"id": <base>, "path": Path, "tag": str, "ext": str}
         - stray: list of files that cannot be associated (no "_" in name)
     """
-    items: Dict[str, Path] = {}
-    by_base: Dict[str, List[Path]] = {}
+    items_list: List[Dict[str, object]] = []
+    attachments: List[Dict[str, object]] = []
     stray: List[Path] = []
     # Walk recursively; subfolders are for user convenience only
     for p in col_path.rglob("*"):
@@ -186,38 +186,54 @@ def group_items_and_attachments(col_path: Path) -> Tuple[Dict[str, Path], Dict[s
             continue
         if p.suffix.lower() == ".yaml":
             # Item identified by basename; subdir has no semantic meaning
-            items[p.stem] = p
+            # Do not collapse by stem; keep duplicates for validation to catch
+            items_list.append({"id": p.stem, "item_path": p})
         else:
             stem = p.stem
             if "_" not in stem:
                 stray.append(p)
                 continue
-            base, _tag = stem.split("_", 1)
-            by_base.setdefault(base, []).append(p)
-    return items, by_base, stray
+            base, tag = stem.split("_", 1)
+            attachments.append({
+                "id": base,
+                "path": p,
+                "tag": tag,
+                "ext": p.suffix.lower(),
+            })
+    # Ensure a stable order for predictable downstream processing
+    items_list.sort(key=lambda it: (str(it.get("id") or ""), str(it.get("item_path") or "")))
+    return items_list, attachments, stray
 
 
-def build_collection_map(col_path: Path, root: Path) -> Dict[str, Dict[str, object]]:
-    """Return a mapping of item -> paths for a single collection directory.
+def build_collection_map(col_path: Path, root: Path) -> List[Dict[str, object]]:
+    """Return a list of item descriptors for a collection directory.
 
-    The mapping shape is:
-    {"<item>": {"item_path": "...", "attachments": ["..."]}}
+    The list items have the shape:
+    {"id": "<item>", "item_path": "...", "item_data": {...}, "attachments": ["..."]}
     Paths are relative to ``root``.
     """
-    items, by_base, _ = group_items_and_attachments(col_path)
-    out: Dict[str, Dict[str, object]] = {}
-    for base, item_path in sorted(items.items()):
-        atts = [str(p.relative_to(root)) for p in sorted(by_base.get(base, []), key=lambda pp: pp.name)]
+    items, attachments, _ = group_items_and_attachments(col_path)
+    out_list: List[Dict[str, object]] = []
+    for entry in items:
+        base = entry.get("id")
+        item_path = entry.get("item_path")
+        # collect attachments for this item id (sorted by filename)
+        atts_paths = [att.get("path") for att in attachments if att.get("id") == base]
+        atts_paths = [p for p in atts_paths if isinstance(p, Path)]
+        atts = [str(p.relative_to(root)) for p in sorted(atts_paths, key=lambda pp: pp.name)]
         try:
-            data = load_yaml(item_path)
+            data = load_yaml(item_path) if isinstance(item_path, Path) else load_yaml(Path(str(item_path)))
         except Exception as e:
             data = {"_error": f"YAML load failed: {e}"}
-        out[base] = {
-            "item_path": str(item_path.relative_to(root)),
-            "item_data": data,
-            "attachments": atts,
-        }
-    return out
+        out_list.append(
+            {
+                "id": base,
+                "item_path": str((item_path if isinstance(item_path, Path) else Path(str(item_path))).relative_to(root)),
+                "item_data": data,
+                "attachments": atts,
+            }
+        )
+    return out_list
 
 
 def rules_to_dict(rules: Optional[CollectionRules]) -> Optional[Dict[str, object]]:
@@ -269,7 +285,7 @@ def validate_collection(col_path: Path, schemas_dir: Path, rules: Optional[Colle
     schema = load_item_schema(schemas_dir, col_path.name)
     if schema is None:
         errors.append(f"{col_path}: missing schema file {schemas_dir / (col_path.name + '.yaml')}")
-    items, by_base, stray = group_items_and_attachments(col_path)
+    items, attachments, stray = group_items_and_attachments(col_path)
 
     # Stray files (no underscore to bind to an item)
     for p in stray:
@@ -284,15 +300,20 @@ def validate_collection(col_path: Path, schemas_dir: Path, rules: Optional[Colle
             allowed_by_ext.setdefault(a.ext, []).append(a)
 
     # Validate each item
-    for base, item_path in items.items():
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue
+        base = entry.get("id")
+        item_path = entry.get("item_path")
         # id pattern on base name
-        if id_re and not id_re.match(base):
+        if isinstance(base, str) and id_re and not id_re.match(base):
             errors.append(f"{item_path}: item name '{base}' does not match id pattern {id_re.pattern}")
 
         # schema validation if available
         if schema is not None:
             try:
-                data = load_yaml(item_path)
+                # item_path is a Path from group_items_and_attachments
+                data = load_yaml(item_path if isinstance(item_path, Path) else Path(str(item_path)))
             except Exception as e:
                 errors.append(f"{item_path}: cannot parse YAML: {e}")
                 data = None
@@ -302,14 +323,16 @@ def validate_collection(col_path: Path, schemas_dir: Path, rules: Optional[Colle
                 errors.append(f"{item_path}: expected YAML object at root")
 
         # attachments
-        att_list = by_base.get(base, [])
+        att_list = [att for att in attachments if isinstance(base, str) and att.get("id") == base]
         # Index by extension and tags
         got: Dict[str, List[Tuple[str, Path]]] = {}
-        for p in att_list:
-            stem = p.stem
-            # safe split since we checked existence of '_' earlier
-            _, tag = stem.split("_", 1)
-            got.setdefault(p.suffix.lower(), []).append((tag, p))
+        for att in att_list:
+            tag = att.get("tag") or ""
+            p = att.get("path")
+            ext = att.get("ext") or (p.suffix.lower() if isinstance(p, Path) else "")
+            if not isinstance(p, Path):
+                continue
+            got.setdefault(str(ext), []).append((str(tag), p))
 
         if rules is None:
             # With no rules, only check that attachments bind to existing items (already done)
@@ -343,10 +366,12 @@ def validate_collection(col_path: Path, schemas_dir: Path, rules: Optional[Colle
                     errors.append(f"{pth}: tag '{tag}' does not match allowed patterns for ext '{ext}'")
 
     # Orphan attachments: base has no item
-    for base, paths in by_base.items():
-        if base not in items:
-            for p in paths:
-                errors.append(f"{p}: attachment refers to missing item '{base}'")
+    item_ids = {it.get("id") for it in items if isinstance(it, dict)}
+    for att in attachments:
+        base = att.get("id")
+        p = att.get("path")
+        if base not in item_ids and isinstance(p, Path):
+            errors.append(f"{p}: attachment refers to missing item '{base}'")
 
     return errors
 

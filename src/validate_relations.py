@@ -133,9 +133,16 @@ def validate_relations(map_data: dict) -> List[str]:
     ids_by_coll: Dict[str, set] = {}
     path_by_coll_id: Dict[str, Dict[str, str]] = {}
     for cname, cval in collections.items():
-        items = cval.get("items") or {}
-        ids_by_coll[cname] = set(items.keys())
-        path_by_coll_id[cname] = {k: v.get("item_path", "") for k, v in items.items()}
+        items = cval.get("items") or []
+        # items is a list of objects with an 'id' field
+        ids_by_coll[cname] = set(
+            it.get("id") for it in items if isinstance(it, dict) and isinstance(it.get("id"), str)
+        )
+        path_by_coll_id[cname] = {
+            it.get("id"): it.get("item_path", "")
+            for it in items
+            if isinstance(it, dict) and isinstance(it.get("id"), str)
+        }
 
     # Connect to in-memory SQLite and enable FK enforcement
     try:
@@ -207,21 +214,36 @@ def validate_relations(map_data: dict) -> List[str]:
 
     # Insert items
     for cname, cval in collections.items():
-        items = cval.get("items") or {}
-        for item_id, entry in items.items():
+        items = cval.get("items") or []
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            item_id = entry.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                errors.append(f"{cname}: item missing string 'id' in map")
+                continue
             try:
                 conn.execute(
-                    f"INSERT OR IGNORE INTO {quote_ident(cname)} ({quote_ident('id')}) VALUES (?)",
+                    f"INSERT INTO {quote_ident(cname)} ({quote_ident('id')}) VALUES (?)",
                     (item_id,),
                 )
+            except IntegrityError as e:
+                # Duplicate item id within the same collection
+                errors.append(f"{cname}/{item_id}: duplicate item id (PRIMARY KEY violation): {e}")
             except Exception as e:
                 errors.append(f"INSERT item failed for {cname}/{item_id}: {e}")
 
     # Insert relations
     for left, cval in collections.items():
         rel_spec = rel_spec_by_coll.get(left, {})
-        items = cval.get("items") or {}
-        for item_id, entry in items.items():
+        items = cval.get("items") or []
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            item_id = entry.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                # Already reported above during insert loop; skip
+                continue
             item_data = entry.get("item_data") or {}
             item_path = entry.get("item_path") or f"{left}/{item_id}.yaml"
             for right, rnames in rel_spec.items():
@@ -273,13 +295,14 @@ def validate_relations(map_data: dict) -> List[str]:
                             continue
                         try:
                             conn.execute(
-                                f"INSERT OR IGNORE INTO {quote_ident(jn)} ("
+                                f"INSERT INTO {quote_ident(jn)} ("
                                 f"{quote_ident(left_col)}, {quote_ident(right_col)}) VALUES (?, ?)",
                                 (item_id, ref_id),
                             )
                         except IntegrityError as e:
+                            # Duplicate edge between the same two items for this relation
                             errors.append(
-                                f"{item_path}: failed to insert relation into {jn} ({item_id}, {ref_id}): {e}"
+                                f"{item_path}: duplicate relation in {jn} ({item_id}, {ref_id}) — {e}"
                             )
                         except Exception as e:
                             errors.append(

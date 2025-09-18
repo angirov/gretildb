@@ -117,9 +117,14 @@ def main(argv=None) -> int:
 
     entities: dict = {}
     for coll_name, coll_info in (collections_map.get("collections") or {}).items():
-        items = coll_info.get("items") or {}
+        items = coll_info.get("items") or []
         mapped = {}
-        for item_id, info in items.items():
+        for info in items:
+            if not isinstance(info, dict):
+                continue
+            item_id = info.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                continue
             data = info.get("item_data")
             if data is None:
                 # Keep structure predictable
