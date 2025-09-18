@@ -1,5 +1,5 @@
 PY ?= python3
-ROOT ?= db
+ROOT ?= ../db
 SCHEMAS ?= $(ROOT)/schemas
 CONFIG ?= $(ROOT)/config.yaml
 SPEC ?= src/fs_spec.yaml

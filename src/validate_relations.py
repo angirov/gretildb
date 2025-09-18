@@ -126,14 +126,24 @@ def validate_relations(map_data: dict) -> List[str]:
     - Inserts items and join rows, reporting but not halting on errors
     """
     errors: List[str] = []
-    collections = map_data.get("collections") or {}
-    coll_names = list(collections.keys())
+    coll_entries = map_data.get("collections") or []
+    # Normalize and extract collection names as a list
+    coll_names = [
+        c.get("name")
+        for c in coll_entries
+        if isinstance(c, dict) and isinstance(c.get("name"), str)
+    ]
 
     # Build quick lookup: ids per collection and item paths
     ids_by_coll: Dict[str, set] = {}
     path_by_coll_id: Dict[str, Dict[str, str]] = {}
-    for cname, cval in collections.items():
-        items = cval.get("items") or []
+    for cent in coll_entries:
+        if not isinstance(cent, dict):
+            continue
+        cname = cent.get("name")
+        if not isinstance(cname, str) or not cname:
+            continue
+        items = cent.get("items") or []
         # items is a list of objects with an 'id' field
         ids_by_coll[cname] = set(
             it.get("id") for it in items if isinstance(it, dict) and isinstance(it.get("id"), str)
@@ -153,11 +163,16 @@ def validate_relations(map_data: dict) -> List[str]:
 
     # Identifier checks and relation inference per collection
     rel_spec_by_coll: Dict[str, Dict[str, List[str]]] = {}
-    for cname, cval in collections.items():
+    for cent in coll_entries:
+        if not isinstance(cent, dict):
+            continue
+        cname = cent.get("name")
+        if not isinstance(cname, str) or not cname:
+            continue
         if not SAFE_IDENT_RE.match(cname):
             errors.append(f"Collection name not RDBMS-safe: {cname} (allowed: [a-z0-9_-])")
 
-        schema_path = cval.get("schema_path")
+        schema_path = cent.get("schema_path")
         if not schema_path:
             errors.append(f"{cname}: missing schema_path in map")
             continue
@@ -173,7 +188,7 @@ def validate_relations(map_data: dict) -> List[str]:
                     errors.append(f"Join table name not SQLite-safe: {jn}")
 
     # Create primary tables
-    for cname in collections.keys():
+    for cname in coll_names:
         try:
             conn.execute(
                 f"CREATE TABLE IF NOT EXISTS {quote_ident(cname)} ("
@@ -213,8 +228,13 @@ def validate_relations(map_data: dict) -> List[str]:
         pass
 
     # Insert items
-    for cname, cval in collections.items():
-        items = cval.get("items") or []
+    for cent in coll_entries:
+        if not isinstance(cent, dict):
+            continue
+        cname = cent.get("name")
+        if not isinstance(cname, str) or not cname:
+            continue
+        items = cent.get("items") or []
         for entry in items:
             if not isinstance(entry, dict):
                 continue
@@ -234,9 +254,14 @@ def validate_relations(map_data: dict) -> List[str]:
                 errors.append(f"INSERT item failed for {cname}/{item_id}: {e}")
 
     # Insert relations
-    for left, cval in collections.items():
+    for cent in coll_entries:
+        if not isinstance(cent, dict):
+            continue
+        left = cent.get("name")
+        if not isinstance(left, str) or not left:
+            continue
         rel_spec = rel_spec_by_coll.get(left, {})
-        items = cval.get("items") or []
+        items = cent.get("items") or []
         for entry in items:
             if not isinstance(entry, dict):
                 continue

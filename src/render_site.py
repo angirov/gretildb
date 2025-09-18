@@ -116,8 +116,13 @@ def main(argv=None) -> int:
         return 2
 
     entities: dict = {}
-    for coll_name, coll_info in (collections_map.get("collections") or {}).items():
-        items = coll_info.get("items") or []
+    for coll in (collections_map.get("collections") or []):
+        if not isinstance(coll, dict):
+            continue
+        coll_name = coll.get("name")
+        if not isinstance(coll_name, str) or not coll_name:
+            continue
+        items = coll.get("items") or []
         mapped = {}
         for info in items:
             if not isinstance(info, dict):

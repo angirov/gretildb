@@ -412,10 +412,10 @@ def main(argv: List[str]) -> int:
     collections = [p for p in root.iterdir() if p.is_dir() and p.name.startswith("_")]
     errors: List[str] = []
 
-    # Build JSON map scaffold
+    # Build JSON map scaffold (collections as a list)
     db_map: Dict[str, object] = {
         "root": str(root),
-        "collections": {},
+        "collections": [],
     }
     for col in sorted(collections, key=lambda p: p.name):
         crules = find_col_rules(col.name, rules_all)
@@ -423,12 +423,13 @@ def main(argv: List[str]) -> int:
             validate_collection(col, schemas_dir, crules, hooks_dir, bool(args.run_hooks))
         )
         # Always add to the map, regardless of validation outcome
-        db_map["collections"][col.name] = {
+        db_map["collections"].append({
+            "name": col.name,
             "collection_path": str(col.relative_to(root)),
             "rules": rules_to_dict(crules),
             "schema_path": str((schemas_dir / f"{col.name}.yaml").resolve()),
             "items": build_collection_map(col, root),
-        }
+        })
 
     # Write JSON map
     out_path = Path(args.map_out).resolve() if args.map_out else (root / "collections.json")
